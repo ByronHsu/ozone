@@ -29,6 +29,9 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.apache.hadoop.hdds.conf.Config;
+import org.apache.hadoop.hdds.conf.ConfigGroup;
+import org.apache.hadoop.hdds.conf.ConfigType;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
 import org.apache.hadoop.hdds.scm.container.common.helpers.StorageContainerException;
@@ -61,10 +64,7 @@ import org.apache.hadoop.hdds.protocol.proto
 
 import com.google.common.collect.Lists;
 
-import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_BLOCK_DELETING_CONTAINER_LIMIT_PER_INTERVAL;
-import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_BLOCK_DELETING_CONTAINER_LIMIT_PER_INTERVAL_DEFAULT;
-import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_BLOCK_DELETING_LIMIT_PER_CONTAINER;
-import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_BLOCK_DELETING_LIMIT_PER_CONTAINER_DEFAULT;
+import static org.apache.hadoop.hdds.conf.ConfigTag.*;
 import static org.apache.hadoop.ozone.OzoneConsts.SCHEMA_V1;
 import static org.apache.hadoop.ozone.OzoneConsts.SCHEMA_V2;
 
@@ -100,7 +100,8 @@ public class BlockDeletingService extends BackgroundService {
 
   public BlockDeletingService(OzoneContainer ozoneContainer,
       long serviceInterval, long serviceTimeout, TimeUnit timeUnit,
-      ConfigurationSource conf) {
+      ConfigurationSource conf,
+      BlockDeletingServiceConfiguration annotationConf) {
     super("BlockDeletingService", serviceInterval, timeUnit,
         BLOCK_DELETING_SERVICE_CORE_POOL_SIZE, serviceTimeout);
     this.ozoneContainer = ozoneContainer;
@@ -113,12 +114,10 @@ public class BlockDeletingService extends BackgroundService {
       throw new RuntimeException(e);
     }
     this.conf = conf;
-    this.blockLimitPerTask =
-        conf.getInt(OZONE_BLOCK_DELETING_LIMIT_PER_CONTAINER,
-            OZONE_BLOCK_DELETING_LIMIT_PER_CONTAINER_DEFAULT);
+
+    this.blockLimitPerTask = annotationConf.getBlockLimitPerTask();
     this.containerLimitPerInterval =
-        conf.getInt(OZONE_BLOCK_DELETING_CONTAINER_LIMIT_PER_INTERVAL,
-            OZONE_BLOCK_DELETING_CONTAINER_LIMIT_PER_INTERVAL_DEFAULT);
+            annotationConf.getContainerLimitPerInterval();
   }
 
 
@@ -455,6 +454,50 @@ public class BlockDeletingService extends BackgroundService {
     @Override
     public int getPriority() {
       return priority;
+    }
+  }
+
+
+  @ConfigGroup(prefix = "ozone.block.deleting")
+  public static class BlockDeletingServiceConfiguration {
+    @Config(key = "limit.per.task",
+            type = ConfigType.INT,
+            defaultValue = "1000",
+            tags = {OZONE, PERFORMANCE, SCM},
+            description = "A maximum number of blocks to be deleted by block " +
+                    "deleting service per time interval. " +
+                    "This property is used to throttle the actual number of " +
+                    "block deletions on a data node per container."
+    )
+    private int blockLimitPerTask = 1000;
+
+    @Config(key = "container.limit.per.interval",
+            type = ConfigType.INT,
+            defaultValue = "10",
+            tags = {OZONE, PERFORMANCE, SCM},
+            description = "A maximum number of containers to be scanned " +
+                    "service per by block deleting time interval. " +
+                    "The block deleting service spawns a thread to " +
+                    "handle block deletions in a container. " +
+                    "This property is used to throttle the number of " +
+                    "threads spawned for block deletions."
+    )
+    private int containerLimitPerInterval = 10;
+
+    public int getBlockLimitPerTask() {
+      return blockLimitPerTask;
+    }
+
+    public void setBlockLimitPerTask(int blockLimitPerTask) {
+      this.blockLimitPerTask = blockLimitPerTask;
+    }
+
+    public int getContainerLimitPerInterval() {
+      return containerLimitPerInterval;
+    }
+
+    public void setContainerLimitPerInterval(int containerLimitPerInterval) {
+      this.containerLimitPerInterval = containerLimitPerInterval;
     }
   }
 }
